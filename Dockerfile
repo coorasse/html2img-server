@@ -31,6 +31,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         chromium \
         ca-certificates \
+        tini \
         fontconfig \
         fonts-liberation \
         fonts-dejavu-core \
@@ -50,4 +51,5 @@ ENV CHROME_BIN=/usr/bin/chromium
 
 EXPOSE 8080
 
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["./main"]

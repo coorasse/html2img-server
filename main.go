@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 )
 
@@ -38,30 +40,40 @@ func chromeTimeout() time.Duration {
 }
 
 func takeScreenshot(html []byte) ([]byte, error) {
-	htmlFile, err := ioutil.TempFile("", "*.html")
+	// Chrome leaves its profile, disk cache and temp files behind on every run, so each render gets its own
+	// directory that is removed afterwards.
+	workDir, err := os.MkdirTemp("", "html2img-*")
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(htmlFile.Name())
+	defer os.RemoveAll(workDir)
 
-	_, err = htmlFile.Write(html)
-	if err != nil {
+	htmlPath := filepath.Join(workDir, "page.html")
+	if err := os.WriteFile(htmlPath, html, 0600); err != nil {
 		return nil, err
 	}
 
-	screenshotFile, err := ioutil.TempFile("", "*.png")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(screenshotFile.Name())
+	screenshotPath := filepath.Join(workDir, "screenshot.png")
 
-	params := append(CHROME_ARGS, fmt.Sprintf("file://%s", htmlFile.Name()), fmt.Sprintf("--screenshot=%s", screenshotFile.Name()))
+	params := append(CHROME_ARGS,
+		fmt.Sprintf("--user-data-dir=%s", filepath.Join(workDir, "profile")),
+		fmt.Sprintf("file://%s", htmlPath),
+		fmt.Sprintf("--screenshot=%s", screenshotPath),
+	)
 
 	timeout := chromeTimeout()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, chromeExecutable(), params...)
+	cmd.Env = append(os.Environ(),
+		"TMPDIR="+workDir,
+		"XDG_CACHE_HOME="+filepath.Join(workDir, "cache"),
+		"XDG_CONFIG_HOME="+filepath.Join(workDir, "config"),
+	)
+	// Kill the whole process group on timeout, otherwise Chrome helper processes outlive the render.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	log.Println("Running command: ", cmd.String())
 
 	start := time.Now()
@@ -76,7 +88,7 @@ func takeScreenshot(html []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	screenshot, err := ioutil.ReadFile(screenshotFile.Name())
+	screenshot, err := os.ReadFile(screenshotPath)
 	if err != nil {
 		return nil, err
 	}

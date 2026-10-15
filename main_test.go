@@ -56,6 +56,24 @@ func TestHandler(t *testing.T) {
 	}
 }
 
+func TestTakeScreenshotCleansUp(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("TMPDIR", tmpDir)
+
+	html := []byte(`<html><body style="background: yellow"><h1>Hello from Go!</h1></body></html>`)
+	if _, err := takeScreenshot(html); err != nil {
+		t.Fatalf("takeScreenshot failed: %v", err)
+	}
+
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("Error reading temp dir: %v", err)
+	}
+	for _, entry := range entries {
+		t.Errorf("leftover in temp dir: %s", entry.Name())
+	}
+}
+
 func TestValidateScreenshot(t *testing.T) {
 	t.Run("rejects an empty screenshot", func(t *testing.T) {
 		if err := validateScreenshot([]byte{}); err == nil {
